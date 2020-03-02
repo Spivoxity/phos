@@ -44,6 +44,44 @@ void phos_start(void);
 void phos_interrupt(int irq);
 #endif
 
+/* The C compiler may assume that implementations of the next four
+   routines are provided, and use them, e.g., for translating
+   structure assignment: memcpy, memmove, memset, memcmp. */
+
+void *memcpy(void *dest, const void *src, unsigned n) {
+    unsigned char *p = dest;
+    const unsigned char *q = src;
+    while (n-- > 0) *p++ = *q++;
+    return dest;
+}
+
+void *memmove(void *dest, const void *src, unsigned n) {
+    unsigned char *p = dest;
+    const unsigned char *q = src;
+    if (dest <= src)
+        while (n-- > 0) *p++ = *q++;
+    else {
+        p += n; q += n;
+        while (n-- > 0) *--p = *--q;
+    }
+    return dest;
+}
+    
+void *memset(void *dest, unsigned x, unsigned n) {
+    unsigned char *p = dest;
+    while (n-- > 0) *p++ = x;
+    return dest;
+}
+
+int memcmp(const void *pp, const void *qq, int n) {
+    const unsigned char *p = pp, *q = qq;
+    while (n-- > 0) {
+        if (*p++ != *q++)
+            return (p[-1] < q[-1] ? -1 : 1);
+    }
+    return 0;
+}
+
 /* Addresses set by the linker */
 extern unsigned __data_start[], __data_end[],
      __bss_start[], __bss_end[], __etext[], __stack[];
@@ -62,11 +100,9 @@ void __reset(void) {
      while (! CLOCK_HFCLKSTARTED) { }
 
      // Copy data segment and zero out bss.
-     p = __data_start; q = __etext;
-     while (p < __data_end) *p++ = *q++;
-     p = __bss_start;
-     while (p < __bss_end) *p++ = 0;
-
+     memcpy(__data_start, __etext, __data_end - __data_start);
+     memset(__bss_start, 0, __bss_end - __bss_start);
+  
 #ifdef PHOS
      phos_init();               // Initialise the scheduler.
      init();                    // Let the program initialise itself.
