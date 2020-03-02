@@ -97,7 +97,12 @@ void start(int pid, char *name, void (*body)(int), int arg, int stksize);
 /* System calls */
 void yield(void);
 void send(int dst, message *msg);
+#ifdef ENABLE_TIMEOUTS
 void receive_t(int src, message *msg, int timeout);
+#define receive(dst, msg) receive_t(dst, msg, -1)
+#else
+void receive(int src, message *msg);
+#endif
 void sendrec(int dst, message *msg);
 void tick(int ms);
 void connect(int irq);
@@ -105,8 +110,6 @@ void reconnect(int irq);
 void priority(int p);
 void exit(void);
 void dump(void);
-
-#define receive(dst, msg) receive_t(dst, msg, -1)
 
 /* interrupt -- send INTERRUPT message from handler */
 void interrupt(int pid);

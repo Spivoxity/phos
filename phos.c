@@ -72,7 +72,9 @@ static struct proc {
      int p_pending;              /* Whether HARDWARE message pending */
      int p_accept;               /* Processes who may send: ANY or pid */
      message *p_message;         /* Pointer to message buffer */
+#ifdef ENABLE_TIMEOUTS
      int p_timeout;              /* Timeout for recieve (ms) or NO_TIME */
+#endif
 
      struct proc *p_next;        /* Next process in ready or send queue */
 } ptable[NPROCS];
@@ -85,7 +87,9 @@ static struct proc {
 #define BOTH 4
 #define IDLING 5
 
+#ifdef ENABLE_TIMEOUTS
 #define NO_TIME 0x80000000
+#endif
 
 static struct proc *current;
 static struct proc *idle_proc;
@@ -174,6 +178,7 @@ static void choose_proc(void) {
 }
 
 
+#ifdef ENABLE_TIMEOUTS
 /* TIMEOUTS */
 
 /* A process p has a timeout set if p->p_timeout != NO_TIME.  Those
@@ -252,6 +257,7 @@ void mini_tick(int delta) {
      time_clock = 0;
      n_timeouts = n;
 }
+#endif
 
 
 /* SEND AND RECEIVE */
@@ -272,8 +278,10 @@ static void mini_send(int dst, message *msg) {
         // Receiver is waiting for us
         *(pdst->p_message) = *msg;
         pdst->p_message->m_sender = src;
+#ifdef ENABLE_TIMEOUTS
         if (pdst->p_timeout != NO_TIME)
              cancel_timeout(pdst);
+#endif
         make_ready(pdst);
     } else {
         // Sender must wait by joining the receiver's queue
@@ -295,7 +303,11 @@ static void mini_send(int dst, message *msg) {
 }
 
 /* mini_receive -- receive a message */
-static void mini_receive(int accept, message *msg, int timeout) {
+static void mini_receive(int accept, message *msg
+#ifdef ENABLE_TIMEOUTS
+                         , int timeout
+#endif
+     ) {
     // First see if an interrupt is pending
     if (current->p_pending && (accept == ANY || accept == HARDWARE)) {
         current->p_pending = 0;
@@ -337,18 +349,22 @@ static void mini_receive(int accept, message *msg, int timeout) {
         (accept < 0 || accept >= NPROCS || ptable[accept].p_state == DEAD))
         panic("Trying to receive from non-existent process %d", accept);
 
+#ifdef ENABLE_TIMEOUTS
     if (timeout == 0) {
          // No message, and we are not prepared to wait
          msg->m_type = TIMEOUT;
          msg->m_sender = HARDWARE;
          return;
     }
+#endif
     
     // No luck: we must wait.
     current->p_state = RECEIVING;
     current->p_accept = accept;
     current->p_message = msg;
+#ifdef ENABLE_TIMEOUTS
     if (timeout > 0) set_timeout(timeout);
+#endif
     choose_proc();
 }
 
@@ -386,6 +402,7 @@ static void mini_sendrec(int dst, message *msg) {
 
     choose_proc();
 }    
+
 
 /* INTERRUPT HANDLING */
 
@@ -485,7 +502,9 @@ static void init_ptable(struct proc *p, int pid, char *name, unsigned stksize) {
     p->p_waiting = 0;
     p->p_pending = 0;
     p->p_accept = ANY;
+#ifdef ENABLE_TIMEOUTS
     p->p_timeout = NO_TIME;
+#endif
     p->p_message = NULL;
     p->p_next = NULL;
 }
@@ -572,7 +591,9 @@ unsigned *system_call(unsigned *psp) {
     int op = pc[-1] & 0xff;      // Syscall number from svc instruction
     int x = psp[R0_SAVE];        // PID or IRQ or prio from r0
     message *m = (message *) psp[R1_SAVE];  // Message pointer from r1
+#ifdef ENABLE_TIMEOUTS
     int t = psp[R2_SAVE];        // Timeout from r2
+#endif
 
     // Save sp of the current process
     current->p_sp = psp;
@@ -588,16 +609,22 @@ unsigned *system_call(unsigned *psp) {
          break;
 
     case SYS_RECEIVE:
+#ifdef ENABLE_TIMEOUTS
          mini_receive(x, m, t);
+#else
+         mini_receive(x, m);
+#endif
          break;
 
     case SYS_SENDREC:
          mini_sendrec(x, m);
          break;
 
+#ifdef ENABLE_TIMEOUTS
     case SYS_TICK:
          mini_tick(x);
          break;
+#endif
 
     case SYS_EXIT:
         current->p_state = DEAD;
@@ -647,7 +674,12 @@ void NOINLINE send(int dst, message *msg) {
      syscall(SYS_SEND);
 }
 
-void NOINLINE receive_t(int src, message *msg, int timeout) {
+#ifdef ENABLE_TIMEOUTS
+void NOINLINE receive_t(int src, message *msg, int timeout)
+#else
+void NOINLINE receive(int src, message *msg)
+#endif
+{
      syscall(SYS_RECEIVE);
 }
 
